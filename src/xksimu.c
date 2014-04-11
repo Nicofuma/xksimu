@@ -397,7 +397,7 @@ void create_host(void) {
         nb_hosts = xbt_dynar_length(hosts);
         msg_host_t host;
 
-        XBT_VERB("%d hosts detected.", nb_hosts);
+        XBT_CINFO(XKSIMU_INIT, "%d hosts detected.", nb_hosts);
 
         hosts_table = calloc(nb_hosts, sizeof(struct xksimu_host_t));
 
@@ -405,10 +405,10 @@ void create_host(void) {
                 hosts_table[i].id = i;
                 hosts_table[i].host = host;
                 hosts_table[i].name = MSG_host_get_name(host); 
-                XBT_VERB("Host number %d : %s added.", i, hosts_table[i].name);
+                XBT_CVERB(XKSIMU_INIT, "Host number %d : %s added.", i, hosts_table[i].name);
 
                 xbt_swag_t process = MSG_host_get_process_list(host);
-                XBT_VERB("%d process attached to it.", xbt_swag_size(process));
+                XBT_CDEBUG(XKSIMU_INIT, "%d process attached to it.", xbt_swag_size(process));
                 msg_process_t proc;
                 xbt_swag_foreach(proc, process) {
                         if (strcmp(MSG_process_get_name(proc), "worker") == 0) {
@@ -419,7 +419,7 @@ void create_host(void) {
                                 curr_proc->steal_request = false;
                                 xksimu_list_push_front(&(hosts_table[i].proc), curr_proc);
                                 xksimu_list_push_front(&running_workers, curr_proc);
-                                XBT_VERB("Adding a worker process, pid : %d.", curr_proc->pid);
+                                XBT_CDEBUG(XKSIMU_INIT, "Adding a worker process, pid : %d.", curr_proc->pid);
                         } else if (strcmp(MSG_process_get_name(proc), "comm") == 0) {
                                 struct xksimu_com_t * curr_proc = calloc(1, sizeof(struct xksimu_com_t));
                                 curr_proc->host = &(hosts_table[i]);
@@ -429,7 +429,7 @@ void create_host(void) {
                                 curr_proc->applicants = calloc(1, sizeof(struct xksimu_list_t));
 
                                 hosts_table[i].com = curr_proc;
-                                XBT_VERB("Adding a comm process, pid : %d.", curr_proc->pid);
+                                XBT_CDEBUG(XKSIMU_INIT, "Adding a comm process, pid : %d.", curr_proc->pid);
                         }
                 }
         } 
@@ -554,6 +554,7 @@ int worker (int argc, char *argv[]) {
                                 steal_request->dest = NULL;
                                 steal_request->source = proc;
 
+                                XBT_CVERB(XKSIMU_TASKS, "Local steal request sent.");
                                 msg_task_t message = MSG_task_create(NULL, 1, 1, com_request);
                                 MSG_task_send(message, host->name);
                                 MSG_process_suspend(proc->process);
@@ -605,7 +606,8 @@ int comm (int argc, char *argv[]) {
                                 } while (host_dest->id == host->id);
                                
                                 // Chossing a random process
-                                struct xksimu_proc_t * proc_dest = xksimu_list_get(host_dest->proc, rand_n(host->proc.size -1) + 1);
+                                int _n = rand_n(host->proc.size-1) +1;
+                                struct xksimu_proc_t * proc_dest = xksimu_list_get(host_dest->proc, _n);
 
                                 XBT_CINFO(XKSIMU_TASKS, "[Request] Sending steal request from %d to %s/%d.", steal_request_send->source->pid, host_dest->name, proc_dest->pid);
                                 
@@ -949,9 +951,10 @@ int main (int argc, char *argv[]) {
 
         srand(time(NULL));
 
+        TRACE_platform_graph_export_graphviz("test_graph.dot");
+        XBT_INFO("Simulation started.");
         res = MSG_main();
         XBT_INFO("Simulation time %g", MSG_get_clock());
-
         if (res == MSG_OK) {
                 return 0;
         } else {
