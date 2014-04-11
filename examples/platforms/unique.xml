@@ -1,0 +1,8 @@
+<?xml version='1.0'?>
+ <!DOCTYPE platform SYSTEM "http://simgrid.gforge.inria.fr/simgrid.dtd">
+ <platform version="3">
+ <AS  id="AS0"  routing="Full">
+   <!-- ljlkj -->
+   <host id="Tremblay" power="2.5Gf" core="2"/>
+ </AS>
+ </platform>

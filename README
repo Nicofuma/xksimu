@@ -1,0 +1,31 @@
+======== Utilisation =========
+Requis : (dans cet ordre)
+        - fichier de platforme
+        - fichier de déploiement
+        - fichier .tasks
+        - fichier .data
+        - taille des blocs (pour le découpage des données), 1000 par défaut
+
+Options : (pour générer les traces Paje)
+        --cfg=tracing:1
+        --cfg=tracing/msg/process:1
+        --cfg=tracing/uncategorized:1
+        --cfg=tracing/categorized:1
+
+          (pour générer les traces pour viva)
+        --cfg=viva/uncategorized:<fichier>
+        --cfg=viva/categorized:<fichier>
+
+          (pour gérer le niveau de logs)
+        --log=XKSIMU.thres:<NIVEAU> (niveau global) - INFO par défaut
+        --log=XKSIMU_TASKS.thres:<NIVEAU> (pour les taches)
+        --log=XKSIMU_DATAS.thres:<NIVEAU> (pour les données)
+        --log=XKSIMU_INIT.thres:<NIVEAU> (pour la phase d'initialisation) - WARNING par défaut
+
+
+exemple : 
+./main small_platform2.xml deployment_masterslave_mailbox.xml --cfg=tracing:1 --cfg=tracing/msg/process:1 --cfg=tracing/uncategorized:1 --cfg=viva/uncategorized:uncat.plist --cfg=viva/categorized:cat.plist --cfg=tracing/categorized:1 --log=XKSIMU.thres:DEBUG graph.5000-5000.r10.tasks graph.5000-5000.r10.data 150000
+
+======== Compilation ========
+Un simple appel à make permer de compiler e programme dans le répertoire courant.
+        - Simgrid doit être installé et disponible
