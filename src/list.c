@@ -7,6 +7,7 @@ void xksimu_list_push_front(struct xksimu_list_t * list, void * data) {
         struct xksimu_list_el_t * el = calloc(1, sizeof(struct xksimu_list_el_t));
         el->data = data;
         el->prev = NULL;
+        el->free = NULL;
         if (list->head != NULL) {
                 list->head->prev = el;
         }
@@ -22,6 +23,7 @@ void xksimu_list_push_back(struct xksimu_list_t * list, void * data) {
         struct xksimu_list_el_t * el = calloc(1, sizeof(struct xksimu_list_el_t));
         el->data = data;
         el->next = NULL;
+        el->free = NULL;
         if (list->queue != NULL) {
                 list->queue->next = el;
         }
@@ -96,11 +98,13 @@ void xksimu_list_free(struct xksimu_list_t * list) {
                 
                 to_destr->next = NULL;
                 to_destr->prev = NULL;
+                to_destr->data = NULL;
                         
                 //free(to_destr->data); // TODO : Utiliser un foncteur libérer à la place.
                 free(to_destr);
         }
 
+        list->size = 0;
         list->head = NULL;
         list->queue = NULL;
 }
@@ -109,7 +113,41 @@ void * xksimu_list_remove(struct xksimu_list_t * list, void * data) {
         struct xksimu_list_el_t * curr_el = list->head;
 
         if (curr_el != NULL) {
-                if (curr_el->data != data) {
+                if (list->queue->data == data) {
+                        curr_el = list->queue;
+                        list->queue = list->queue->prev;
+                        
+                        if (list->queue != NULL) {
+                                list->queue->next = NULL;
+                        } else {
+                                list->head = NULL;
+                        }
+
+                        curr_el->next = NULL;
+                        curr_el->prev = NULL;
+                        curr_el->data = NULL;
+                        free(curr_el);
+                        list->size--;
+                        
+                        return data;
+                } else if (list->head->data == data) {
+                        curr_el = list->head;
+                        list->head = list->head->next;
+                        
+                        if (list->head != NULL) {
+                                list->head->prev = NULL;
+                        } else {
+                                list->queue = NULL;
+                        }
+
+                        curr_el->next = NULL;
+                        curr_el->prev = NULL;
+                        curr_el->data = NULL;
+                        free(curr_el);
+                        list->size--;
+                        
+                        return data;
+                } else {
                         while (curr_el->next != NULL && curr_el->next->data != data) {
                                 curr_el = curr_el->next;
                         }
@@ -125,26 +163,15 @@ void * xksimu_list_remove(struct xksimu_list_t * list, void * data) {
                                 }
                                 //curr_el->next->prev = curr_el;
                                 //curr_el->next = curr_el->next->next;
-                                
+                               
+                                to_destr->next = NULL;
+                                to_destr->prev = NULL;
+                                to_destr->data = NULL; 
                                 free(to_destr);
                                 list->size--;
 
                                 return data;
                         }
-                } else {
-                        list->head = list->head->next;
-                        
-                        if (list->head != NULL) {
-                                list->head->prev = NULL;
-                        } else {
-                                list->queue = NULL;
-                        }
-
-                        curr_el->next = NULL;
-                        free(curr_el);
-                        list->size--;
-                        
-                        return data;
                 }
         }
 

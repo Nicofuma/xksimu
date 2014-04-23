@@ -36,6 +36,7 @@ struct xksimu_com_data_t {
         struct xksimu_data_t * data;    // Data requested
         struct xksimu_list_t * blocks;  // Non available blocks
         struct xksimu_list_t * applicants;       // Applicant's process
+        struct xksimu_list_t * awaiting_blocks;
 };
 
 enum xksimu_com_request_type_e {
@@ -44,7 +45,9 @@ enum xksimu_com_request_type_e {
         XKS_COM_REQ_STEAL_ANSWER,
         XKS_COM_REQ_DATA_LOCAL,
         XKS_COM_REQ_DATA_DISTANT,
-        XKS_COM_REQ_DATA_ANSWER 
+        XKS_COM_REQ_DATA_ANSWER, 
+        XKS_COM_REQ_BLOCK_DISTANT, 
+        XKS_COM_REQ_BLOCK_ANSWER
 };
 
 struct xksimu_com_request_t {
@@ -78,7 +81,12 @@ struct xksimu_com_request_data_answer_t {
        struct xksimu_host_t * source;
        struct xksimu_data_t * data;
        struct xksimu_list_t * blocks;
-       struct xksimu_block_t * block;
+       // struct xksimu_block_t * block;
+};
+
+struct xksimu_com_request_block_t {
+        struct xksimu_host_t * source;
+        struct xksimu_block_t * block;
 };
 
 // ----- HOST -----

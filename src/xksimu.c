@@ -35,6 +35,9 @@ struct xksimu_task_t * get_fullyavailable_task(struct xksimu_proc_t * proc);
 struct xksimu_task_t * get_available_task(struct xksimu_proc_t * proc);
 struct xksimu_list_t * get_missingdata_list(struct xksimu_proc_t * proc, struct xksimu_task_t * task);
 
+struct xksimu_com_data_t * get_com_data(struct xksimu_host_t * host, struct xksimu_data_t * data);
+void * get_first_intersection(struct xksimu_list_t * list1, struct xksimu_list_t * list2);
+
 // ----- GLOBAL VARIABLES -----
 
 struct xksimu_host_t * hosts_table;
@@ -70,6 +73,19 @@ struct xksimu_proc_t * proc_get(struct xksimu_host_t * host, msg_process_t proc)
         xksimu_list_foreach (host->proc, el, p) {
                 if (p->pid == pid) {
                         return p;
+                }
+        }
+
+        return NULL;
+}
+
+/* Retrieve tje com_data correspondind to a given data and a given host. */
+struct xksimu_com_data_t * get_com_data(struct xksimu_host_t * host, struct xksimu_data_t * data) {
+        struct xksimu_com_data_t * d;
+        struct xksimu_list_el_t * el;
+        xksimu_list_foreach(*(host->com->requests), el, d) {
+                if (d->data == data) {
+                        return d;
                 }
         }
 
@@ -126,9 +142,26 @@ struct xksimu_task_t * get_task(char * id) {
         return NULL;
 }
 
+void * get_first_intersection(struct xksimu_list_t * list1, struct xksimu_list_t * list2) {
+        void * d;
+        struct xksimu_list_el_t * el;
+
+        xksimu_list_foreach (*list1, el, d) {
+                if (xksimu_list_contains(*list2, d)) {
+                        return d;
+                }
+        }
+
+        return NULL;
+}
+
 /* Return the list of the missig (or partial) data of task on process proc. */
 struct xksimu_list_t * get_missingdata_list(struct xksimu_proc_t * proc, struct xksimu_task_t * task) {
         struct xksimu_list_t * res = calloc(1, sizeof(struct xksimu_list_t));
+
+        res->head = NULL;
+        res->queue = NULL;
+        res->size = 0;
 
         struct xksimu_list_el_t * el1;
         struct xksimu_data_t * d;
@@ -305,6 +338,10 @@ void create_datas(const char * filename) {
         datas_table = calloc(nb_datas, sizeof(struct xksimu_data_t));
 
         for (int i = 0 ; i < nb_datas ; i++) {
+                datas_table[i].blocks.head = NULL;
+                datas_table[i].blocks.queue = NULL;
+                datas_table[i].blocks.size = 0;
+                
                 str = fgets(buf, 256, file); // id
                 buf[strlen(buf) - 1] = '\0';
                 sprintf(datas_table[i].id, "%s", buf);
@@ -537,7 +574,8 @@ int worker (int argc, char *argv[]) {
                                         data_request->source = proc;
                                         data_request->data = missing_data;
 
-                                        msg_task_t message = MSG_task_create(NULL, 1, 1, com_request);
+                                        msg_task_t message = MSG_task_create(NULL, 100, 100, com_request);
+                                        MSG_task_set_category(message, "LOCAL");
                                         MSG_task_send(message, host->name);
 
                                         XBT_CVERB(XKSIMU_DATAS, "[Request][Local] Data required for task %s.", task_av->id);
@@ -555,7 +593,8 @@ int worker (int argc, char *argv[]) {
                                 steal_request->source = proc;
 
                                 XBT_CVERB(XKSIMU_TASKS, "Local steal request sent.");
-                                msg_task_t message = MSG_task_create(NULL, 1, 1, com_request);
+                                msg_task_t message = MSG_task_create(NULL, 100, 100, com_request);
+                                MSG_task_set_category(message, "LOCAL");
                                 MSG_task_send(message, host->name);
                                 MSG_process_suspend(proc->process);
                         }
@@ -616,7 +655,8 @@ int comm (int argc, char *argv[]) {
                                 com_request->data = steal_request_send;
                                 steal_request_send->dest = proc_dest;
 
-                                msg_task_t message_s = MSG_task_create(NULL, 1, 1, com_request);
+                                msg_task_t message_s = MSG_task_create(NULL, 100, 100, com_request);
+                                MSG_task_set_category(message_s, "TASK");
                                 MSG_task_isend(message_s, host_dest->name);
                                 
                                 break;
@@ -656,7 +696,8 @@ int comm (int argc, char *argv[]) {
                                 answer->data = get_available_task(steal_request->dest);
                                 res = xksimu_list_remove(&(steal_request->dest->tasks), answer->data);
 
-                                msg_task_t message_s = MSG_task_create(NULL, 1, 1, com_request);
+                                msg_task_t message_s = MSG_task_create(NULL, 100, 100, com_request);
+                                MSG_task_set_category(message_s, "TASK");
                                 MSG_task_isend(message_s, steal_request->source->host->name);
 
                                 free(steal_request);
@@ -691,8 +732,8 @@ int comm (int argc, char *argv[]) {
                                         XBT_CDEBUG(XKSIMU_DATAS, "     > Data Requested : %s", d->id);
                                         bool ok = false;
 
-                                        struct xksimu_com_data_t * d1;
-                                        struct xksimu_list_el_t * el1;
+                                        struct xksimu_com_data_t * d1 = NULL;
+                                        struct xksimu_list_el_t * el1 = NULL;
                                         xksimu_list_foreach(*(com->requests), el1, d1) {
                                                 // Is the data (d) already requested
                                                 if (d1->data == d) {
@@ -712,8 +753,13 @@ int comm (int argc, char *argv[]) {
                                                 data->requested = false;
                                                 data->data = d;
                                                 data->blocks = calloc(1, sizeof(struct xksimu_list_t));
+                                                data->awaiting_blocks = calloc(1, sizeof(struct xksimu_list_t));
                                                 data->applicants = calloc(1, sizeof(struct xksimu_list_t));
-                                        
+                                       
+                                                data->blocks->head = NULL;
+                                                data->blocks->queue= NULL;
+                                                data->blocks->size = 0;
+
                                                 struct xksimu_block_t * b;
                                                 struct xksimu_list_el_t * el2;
 
@@ -746,25 +792,28 @@ int comm (int argc, char *argv[]) {
                                         XBT_CDEBUG(XKSIMU_DATAS, "     > Current com->request - status : %d, data : %s", d1->requested, d1->data->id);
                                         if (!d1->requested) {
                                                 d1->requested = true;
-                                                struct xksimu_com_request_t * com_request = calloc(1, sizeof(struct xksimu_com_request_t));
-                                                struct xksimu_com_request_data_t * request = calloc(1, sizeof(struct xksimu_com_request_data_t));
+                                                for (int j = 0 ; j < 2 ; j++) {
+                                                        struct xksimu_com_request_t * com_request = calloc(1, sizeof(struct xksimu_com_request_t));
+                                                        struct xksimu_com_request_data_t * request = calloc(1, sizeof(struct xksimu_com_request_data_t));
                                 
-                                                // Choosing a random host
-                                                struct xksimu_host_t * host_dest = NULL;
-                                                do {
-                                                        host_dest = &(hosts_table[rand_n(nb_hosts -1)]);
-                                                } while (host_dest->id == host->id);
+                                                        // Choosing a random host
+                                                        struct xksimu_host_t * host_dest = NULL;
+                                                        do {
+                                                                host_dest = &(hosts_table[rand_n(nb_hosts -1)]);
+                                                        } while (host_dest->id == host->id);
                                 
-                                                com_request->type = XKS_COM_REQ_DATA_DISTANT;
-                                                com_request->data = request;
-                                                request->source = host;
-                                                request->data = d1->data;
-                                                request->blocks = d1->blocks;
+                                                        com_request->type = XKS_COM_REQ_DATA_DISTANT;
+                                                        com_request->data = request;
+                                                        request->source = host;
+                                                        request->data = d1->data;
+                                                        request->blocks = d1->blocks;
 
-                                                XBT_CINFO(XKSIMU_DATAS, "[Request] Data request sent to %s for data %s v%d.", host_dest->name, d1->data->id, d1->data->version);
-                                                msg_task_t message_s = MSG_task_create(NULL, 1, 1, com_request);
-                                                MSG_task_isend(message_s, host_dest->name);
-                                                XBT_CDEBUG(XKSIMU_DATAS, "             > Sent now, next : %p", el1->next);
+                                                        XBT_CINFO(XKSIMU_DATAS, "[Request] Data request sent to %s for data %s v%d.", host_dest->name, d1->data->id, d1->data->version);
+                                                        msg_task_t message_s = MSG_task_create(NULL, 100, 100, com_request);
+                                                        MSG_task_set_category(message_s, "DATA");
+                                                        MSG_task_isend(message_s, host_dest->name);
+                                                        XBT_CDEBUG(XKSIMU_DATAS, "             > Sent now, next : %p", el1->next);
+                                                }
                                         } else {
                                                 XBT_CDEBUG(XKSIMU_DATAS, "             > Already sent, next : %p", el1->next);
                                         }
@@ -779,129 +828,184 @@ int comm (int argc, char *argv[]) {
 
                                 // XBT_INFO("Receive request for data %p (%d) from %s.", data_request->data, data_request->data->id, data_request->source->name);
 
-                                int com_size = 1;
+                                answer->blocks = calloc(1, sizeof(struct xksimu_list_t));
 
-                                // Check and select the first requested and available block
-                                answer->block = NULL;
+                                answer->blocks->head = NULL;
+                                answer->blocks->queue = NULL;
+                                answer->blocks->size = 0;
+
+                                // TODO : retirer ce hack tout moche (problème : head et queue != et != de null mais liste vide, ->size correct
+                                if (data_request->blocks->size > 0) { 
+                                // Compute the list of available blocks
                                 struct xksimu_block_t * b;
                                 struct xksimu_list_el_t * el;
                                 xksimu_list_foreach (*(data_request->blocks), el, b) {
                                         if (xksimu_list_contains(b->owners, host)) {
-                                                com_size = b->size;
-                                                answer->block = b;
-                                                break;
+                                                xksimu_list_push_back(answer->blocks, b);
                                         }
                                 }
-                                
+                                }
+
                                 com_request->type = XKS_COM_REQ_DATA_ANSWER;
                                 com_request->data = answer;
                                 answer->source = host;
                                 answer->data = data_request->data;
-                                answer->blocks = data_request->blocks;
 
-                                msg_task_t message_s = MSG_task_create(NULL, 1, com_size, com_request);
+                                msg_task_t message_s = MSG_task_create(NULL, 1, 100, com_request);
+                                MSG_task_set_category(message_s, "DATA");
                                 MSG_task_isend(message_s, data_request->source->name);
 
-                                if (answer->block != NULL) {
-                                        XBT_CINFO(XKSIMU_DATAS, "[Answer] Block, data %s v%d/%d sent to %s.", answer->block->data->id, answer->block->data->version, answer->block->id, data_request->source->name);
+                                if (answer->blocks->size != 0) {
+                                        XBT_CDEBUG(XKSIMU_DATAS, "[Answer] %d blocks available for data %s.", answer->blocks->size, answer->data->id);
                                  } else {
-                                        XBT_CINFO(XKSIMU_DATAS, "[Answer] No blocks available for %s.", data_request->source->name);
+                                        XBT_CDEBUG(XKSIMU_DATAS, "[Answer] No blocks available for %s.", data_request->source->name);
                                  }
 
                                 free(data_request);
                                 break;
                         } case XKS_COM_REQ_DATA_ANSWER: {
                                 struct xksimu_com_request_data_answer_t * answer = com_receive->data;
-                                
-                                if (answer->block != NULL) {
-                                        XBT_CINFO(XKSIMU_DATAS, "[Receive] Receive block, data %s v%d/%d from %s.", answer->block->data->id, answer->block->data->version, answer->block->id, answer->source->name);
-                                        xksimu_list_push_back(&(host->data_blocks), answer->block);
-                                        xksimu_list_push_back(&(answer->block->owners), host);
+                                struct xksimu_com_data_t * com_data = get_com_data(host, answer->data);
 
-                                        struct xksimu_com_data_t * to_remove = NULL;
-                                        struct xksimu_com_data_t * d1;
-                                        struct xksimu_list_el_t * el1;
+                                // The data could be already available (and so th com_data may not existe anymore) because there is to requests at the same time
+                                if (com_data != NULL) {
                                         bool ok = false;
-                                //        XBT_INFO("------------------------ COM->REQUESTS : %d", com->requests->size);
-                                        xksimu_list_foreach(*(com->requests), el1, d1) {
-                                  //              XBT_INFO("----------------------------- DATA : %p - %d", d1->data, d1->data->id);
-                                                if (d1->data == answer->block->data) {
-                                                        // We received a block, so it's no more required
-                                                        void * _res = xksimu_list_remove(d1->blocks, answer->block);
-                                                        if (_res == NULL) {
-                                                                XBT_CERROR(XKSIMU_DATAS, "Unavailable to remove block %d from needed for %s : not found.", answer->block->id, d1->data->id);
-                                                        }
 
-                                                        // Is the data complete ?
-                                                        if (d1->blocks->size != 0) {
-                                                                struct xksimu_com_request_t * com_request = calloc(1, sizeof(struct xksimu_com_request_t));
-                                                                struct xksimu_com_request_data_t * request = calloc(1, sizeof(struct xksimu_com_request_data_t));
-                                
-                                                                com_request->type = XKS_COM_REQ_DATA_DISTANT;
-                                                                com_request->data = request;
-                                                                request->source = host;
-                                                                request->data = d1->data;
-                                                                request->blocks = d1->blocks;
+                                        if (answer->blocks->size != 0) {
+                                                struct xksimu_block_t * block = get_first_intersection(com_data->blocks, answer->blocks);
+                                                if (block != NULL) {
+                                                        XBT_CINFO(XKSIMU_DATAS, "[Receive] %s have some available blocks for data %s v%d.", answer->source->name, answer->data->id, answer->data->version);
+                                                        xksimu_list_remove(com_data->blocks, block);
+                                                        xksimu_list_push_back(com_data->awaiting_blocks, block);
+                                                        
+                                                        struct xksimu_com_request_t * com_request = calloc(1, sizeof(struct xksimu_com_request_t));
+                                                        struct xksimu_com_request_block_t * request = calloc(1, sizeof(struct xksimu_com_request_block_t));
 
-                                                                XBT_CINFO(XKSIMU_DATAS, "[Request] Data request sent to %s for data %s v%d. %d blocks missing", answer->source->name, d1->data->id, d1->data->version, d1->blocks->size);
-                                                                msg_task_t message_s = MSG_task_create(NULL, 1, 1, com_request);
-                                                                MSG_task_isend(message_s, answer->source->name);
-                                                        } else {
-                                                                XBT_CINFO(XKSIMU_DATAS, "Data %s fully available now.", d1->data->id);
-                                                                // The applicants are suspended, we have to wake up them if they don't need any other data
-                                                                // And then to free the structures
-                                                                struct xksimu_com_applicant_t * a;
-                                                                struct xksimu_list_el_t * el2;
-                                                                xksimu_list_foreach(*(com->applicants), el2, a) {
-                                                                        xksimu_list_remove(a->datas, d1);
+                                                        com_request->type = XKS_COM_REQ_BLOCK_DISTANT;
+                                                        com_request->data = request;
+                                                        request->block = block;
+                                                        request->source = host;
 
-                                                                        if(a->datas->size == 0) {
-                                                                                // TODO : Compute the list of endeed applicants and remove it from com->applicants
-                                                                                XBT_INFO("Resume process %p (%d)", a->proc->process, a->proc->pid);
-                                                                                MSG_process_resume(a->proc->process);
-                                                                        }
-                                                                }
-                                                                
-                                                                // We don't need this data anymore
-                                                                // But we can't remove any here without breaking the loop
-                                                                to_remove = d1;
-                                                        }
+                                                        msg_task_t message_s = MSG_task_create(NULL, 100, 100, com_request);
+                                                        MSG_task_set_category(message_s, "DATA");
+                                                        MSG_task_isend(message_s, answer->source->name);
+                                                        XBT_CINFO(XKSIMU_DATAS, "[Request] Block request sent to %s for data %s v%d/%d.", answer->source->name, answer->data->id, answer->data->version, request->block->id);
                                                         ok = true;
-                                                        break;
                                                 }
                                         }
-                                                        
-                                        if (!ok) {
-                                                XBT_CERROR(XKSIMU_DATAS, "Unavailable to remove block %d from needed for %s : data not found.", answer->block->id, answer->data->id);
-                                        }
+                                        
+                                        if (com_data->blocks->size > 0 && !ok) { 
+                                                // The previous host doesn't have any blocks for us and we still need another ones, so we send a new request
 
-                                        if (to_remove != NULL) {
-                                                void * __res = xksimu_list_remove(com->requests, to_remove);
-                                                XBT_CDEBUG(XKSIMU_DATAS, "     > Remove data %s from com->requests. => %p for %p.", to_remove->data->id, __res, to_remove);
-                                                xksimu_list_free(to_remove->applicants);
-                                                free(to_remove->blocks);
-                                                free(to_remove->applicants);
-                                                free(to_remove);
+                                                XBT_CINFO(XKSIMU_DATAS, "[Receive] No blocks available in %s for data %s v%d.", answer->source->name, answer->data->id, answer->data->version);
+                                                struct xksimu_com_request_t * com_request = calloc(1, sizeof(struct xksimu_com_request_t));
+                                                struct xksimu_com_request_data_t * request = calloc(1, sizeof(struct xksimu_com_request_data_t));
+                                                struct xksimu_host_t * host_dest = NULL;
+                                                do {
+                                                        host_dest = &(hosts_table[rand_n(nb_hosts -1)]);
+                                                } while (host_dest->id == host->id);
+                                                
+                                                com_request->type = XKS_COM_REQ_DATA_DISTANT;
+                                                com_request->data = request;
+                                                request->source = host;
+                                                request->data = answer->data;
+                                                request->blocks =  com_data->blocks;
+
+                                                msg_task_t message_s = MSG_task_create(NULL, 100, 100, com_request);
+                                                MSG_task_set_category(message_s, "DATA");
+                                                MSG_task_isend(message_s, host_dest->name);
+                                                XBT_CINFO(XKSIMU_DATAS, "[Request] Data request sent to %s for data %s v%d.", host_dest->name, answer->data->id, answer->data->version);
                                         }
-                                } else {                
-                                        // Choosing a random host
-                                        XBT_CINFO(XKSIMU_DATAS, "[Receive] No data available in %s for data %s v%d.", answer->source->name, answer->data->id, answer->data->version);
+                                }
+
+                                free(answer->blocks);
+                                free(answer);
+                                break;
+                        } case XKS_COM_REQ_BLOCK_DISTANT: {
+                                struct xksimu_com_request_block_t * req = com_receive->data;
+                                struct xksimu_com_request_t * com_request = calloc(1, sizeof(struct xksimu_com_request_t));
+                                struct xksimu_com_request_block_t * answer = calloc(1, sizeof(struct xksimu_com_request_block_t));
+                                
+                                XBT_CINFO(XKSIMU_DATAS, "[Receive] Block %s v%d/%d requested by %s.", req->block->data->id, req->block->data->version, req->block->id, req->source->name);
+
+                                com_request->type = XKS_COM_REQ_BLOCK_ANSWER;
+                                com_request->data = answer;
+                                answer->source = host;
+                                answer->block = req->block;
+
+                                msg_task_t message_s = MSG_task_create(NULL, 100, answer->block->size, com_request);
+                                MSG_task_set_category(message_s, "DATA");
+                                MSG_task_isend(message_s, req->source->name);
+                                
+                                XBT_CINFO(XKSIMU_DATAS, "[Answer] Block %s v%d/%d sent to %s.", req->block->data->id, req->block->data->version, req->block->id, req->source->name);
+                                free(req);
+                                break;
+                        } case XKS_COM_REQ_BLOCK_ANSWER: {
+                                struct xksimu_com_request_block_t * answer = com_receive->data;
+                                struct xksimu_com_data_t * com_data = get_com_data(host, answer->block->data);
+                               
+                                XBT_CINFO(XKSIMU_DATAS, "[Receive] Receive block %s v%d/%d from %s.", answer->block->data->id, answer->block->data->version, answer->block->id, answer->source->name);
+
+                                // Update the block's owners
+                                xksimu_list_push_back(&(host->data_blocks), answer->block);
+                                xksimu_list_push_back(&(answer->block->owners), host);
+
+                                // Remove the block's from the waiting list
+                                xksimu_list_remove(com_data->awaiting_blocks, answer->block);
+
+                                // Is the data complete ? If not, we have to send a new Data Request
+                                if (com_data->blocks->size != 0) {
                                         struct xksimu_com_request_t * com_request = calloc(1, sizeof(struct xksimu_com_request_t));
                                         struct xksimu_com_request_data_t * request = calloc(1, sizeof(struct xksimu_com_request_data_t));
+
+                                        // To choose a new randoms host (can be the same as before
                                         struct xksimu_host_t * host_dest = NULL;
                                         do {
                                                 host_dest = &(hosts_table[rand_n(nb_hosts -1)]);
                                         } while (host_dest->id == host->id);
-                                        
+                                
                                         com_request->type = XKS_COM_REQ_DATA_DISTANT;
                                         com_request->data = request;
                                         request->source = host;
-                                        request->data = answer->data;
-                                        request->blocks = answer->blocks;
+                                        request->data = com_data->data;
+                                        request->blocks = com_data->blocks;
 
-                                        msg_task_t message_s = MSG_task_create(NULL, 1, 1, com_request);
+                                        XBT_CINFO(XKSIMU_DATAS, "[Request] Data request sent to %s for data %s v%d. %d blocks missing", host_dest->name, com_data->data->id, com_data->data->version, com_data->blocks->size);
+                                        msg_task_t message_s = MSG_task_create(NULL, 100, 100, com_request);
+                                        MSG_task_set_category(message_s, "DATA");
                                         MSG_task_isend(message_s, host_dest->name);
-                                        XBT_CINFO(XKSIMU_DATAS, "[Request] Data request sent to %s for data %s v%d.", host_dest->name, answer->data->id, answer->data->version);
+
+                                } else if (com_data->awaiting_blocks->size == 0) {
+                                        // We don't need to require another block and we receive the last one. So the data is now fully awailable
+
+                                        XBT_CINFO(XKSIMU_DATAS, "Data %s fully available now.", com_data->data->id);
+                                        
+                                        // The applicants are suspended, we have to wake up them if they don't need any other data
+                                        // And then to free the structures
+                                        struct xksimu_com_applicant_t * a;
+                                        struct xksimu_list_el_t * el2;
+                                        xksimu_list_foreach(*(com->applicants), el2, a) {
+                                                xksimu_list_remove(a->datas, com_data);
+
+                                                if(a->datas->size == 0) {
+                                                        // TODO : Compute the list of endeed applicants and remove it from com->applicants
+                                                        XBT_INFO("Resume process %p (%d)", a->proc->process, a->proc->pid);
+                                                        MSG_process_resume(a->proc->process);
+                                                }
+                                        }
+                                        
+                                        // We don't need this data anymore
+                                        void * __res = xksimu_list_remove(com->requests, com_data);
+                                        XBT_CDEBUG(XKSIMU_DATAS, "     > Remove data %s from com->requests. => %p for %p.", com_data->data->id, __res, com_data);
+                                        xksimu_list_free(com_data->applicants);
+                                        free(com_data->blocks);
+                                        free(com_data->applicants);
+                                        com_data->applicants = NULL;
+                                        com_data->blocks = NULL;
+                                        free(com_data);
+                                        com_data = NULL;
+                                } else {
+                                        // We don't need another block but we are still waiting one or more of them from a remote so we can't do anything else for now
                                 }
                                 
                                 free(answer);
@@ -952,6 +1056,10 @@ int main (int argc, char *argv[]) {
         srand(time(NULL));
 
         TRACE_platform_graph_export_graphviz("test_graph.dot");
+        TRACE_category("TASK");
+        TRACE_category("DATA");
+        TRACE_category("LOCAL");
+
         XBT_INFO("Simulation started.");
         res = MSG_main();
         XBT_INFO("Simulation time %g", MSG_get_clock());
