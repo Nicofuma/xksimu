@@ -10,6 +10,8 @@
 
 XBT_LOG_NEW_DEFAULT_CATEGORY(XKSIMU, "Messages speficic to the xKaapi simulation.");
 XBT_LOG_NEW_SUBCATEGORY(XKSIMU_TASKS, XKSIMU, "Tasks' relatives messages.");
+XBT_LOG_NEW_SUBCATEGORY(XKSIMU_TASKS_STEAL, XKSIMU_TASKS, "Tasks relatives to th steals requests.");
+XBT_LOG_NEW_SUBCATEGORY(XKSIMU_TASKS_EXEC, XKSIMU_TASKS, "Executives tasks.");
 XBT_LOG_NEW_SUBCATEGORY(XKSIMU_DATAS, XKSIMU, "Datas' relatives messages.");
 XBT_LOG_NEW_SUBCATEGORY(XKSIMU_INIT, XKSIMU, "Init relatives messages.");
 
@@ -201,12 +203,6 @@ void create_tasks(const char * filename) {
                 buf[strlen(buf) - 1] = '\0';
                 sprintf(tasks_table[i].id, "%s", buf);
 
-                if (strcmp("init", tasks_table[i].id) == 0) {
-                        tasks_table[i].state = fully_available;
-                        struct xksimu_proc_t * proc = hosts_table[0].proc.head->data;
-                        xksimu_list_push_front(&(proc->tasks), &(tasks_table[i]));
-                }
-
                 str = fgets(buf, 256, file);
                 buf[strlen(buf) - 1] = '\0';
                 tasks_table[i].time = atoi(buf);
@@ -248,10 +244,19 @@ void create_tasks(const char * filename) {
                 if (n_ct == 0) {
                         str = fgets(buf, 256, file);
                 }
-                
+               
+                int exec-time = 900000000000;
+                if (strcmp("init", tasks_table[i].id) == 0) {
+                        tasks_table[i].state = fully_available;
+                        struct xksimu_proc_t * proc = hosts_table[0].proc.head->data;
+                        exec_time = 1;
+                        xksimu_list_push_front(&(proc->tasks), &(tasks_table[i]));
+                }
+
                 // TODO : Computation time in flop instead of 50000000
                 // TODO : Communication size in byte instead of 100 => Concrètement, lors du vol il y a quoi qui circule ?
-                tasks_table[i].task = MSG_task_create(tasks_table[i].id, 900000000000, 100, &(tasks_table[i]));
+                tasks_table[i].task = MSG_task_create(tasks_table[i].id, exec_time, 100, &(tasks_table[i]));
+                MSG_task_set_category(tasks_table[i].task, "TASK");
                 xksimu_list_push_front(&remaining_tasks, &tasks_table[i]);
                 
                 XBT_CINFO(XKSIMU_INIT, "Task %s created (di : %d - do : %d - ct: %d)", tasks_table[i].id, n_di, n_do, n_ct);
@@ -508,7 +513,7 @@ int worker (int argc, char *argv[]) {
         while (remaining_tasks.head != NULL) {
                 struct xksimu_task_t * task = get_fullyavailable_task(proc);
                 if (task != NULL) {
-                        XBT_CINFO(XKSIMU_TASKS, "[Execute] Task : num %s.", task->id);
+                        XBT_CINFO(XKSIMU_TASKS_EXEC, "[Execute] Task : num %s.", task->id);
 
                         res = xksimu_list_remove(&(proc->tasks), task);
                         res = xksimu_list_remove(&remaining_tasks, task);
@@ -550,7 +555,7 @@ int worker (int argc, char *argv[]) {
                                         }
 
                                         if (ok) {
-                                                XBT_CVERB(XKSIMU_TASKS, "Task %s activated and added to %s/%d.", t->id, host->name, proc->pid);
+                                                XBT_CVERB(XKSIMU_TASKS_STEAL, "Task %s activated and added to %s/%d.", t->id, host->name, proc->pid);
                                                 t->state = available;
                                                 xksimu_list_push_front(&(proc->tasks), t);
                                         }
@@ -592,7 +597,7 @@ int worker (int argc, char *argv[]) {
                                 steal_request->dest = NULL;
                                 steal_request->source = proc;
 
-                                XBT_CVERB(XKSIMU_TASKS, "Local steal request sent.");
+                                XBT_CVERB(XKSIMU_TASKS_STEAL, "Local steal request sent.");
                                 msg_task_t message = MSG_task_create(NULL, 100, 100, com_request);
                                 MSG_task_set_category(message, "LOCAL");
                                 MSG_task_send(message, host->name);
@@ -642,13 +647,16 @@ int comm (int argc, char *argv[]) {
                                 struct xksimu_host_t * host_dest = NULL;
                                 do {
                                         host_dest = &(hosts_table[rand_n(nb_hosts - 1)]);
-                                } while (host_dest->id == host->id);
+                                } while (host_dest->id == host->id && host->proc.size == 1);
                                
                                 // Chossing a random process
-                                int _n = rand_n(host->proc.size-1) +1;
-                                struct xksimu_proc_t * proc_dest = xksimu_list_get(host_dest->proc, _n);
+                                struct xksimu_proc_t * proc_dest = NULL;
+                                do {
+                                        int _n = rand_n(host->proc.size-1) +1;
+                                        proc_dest = xksimu_list_get(host_dest->proc, _n);
+                                } while (steal_request_send->source->pid == proc_dest->pid);
 
-                                XBT_CINFO(XKSIMU_TASKS, "[Request] Sending steal request from %d to %s/%d.", steal_request_send->source->pid, host_dest->name, proc_dest->pid);
+                                XBT_CINFO(XKSIMU_TASKS_STEAL, "[Request] Sending steal request from %d to %s/%d.", steal_request_send->source->pid, host_dest->name, proc_dest->pid);
                                 
                                 // On a reçut une demande locale, on la transmet à un hote choisit au hasard.
                                 com_request->type = XKS_COM_REQ_STEAL_DISTANT;
@@ -656,7 +664,7 @@ int comm (int argc, char *argv[]) {
                                 steal_request_send->dest = proc_dest;
 
                                 msg_task_t message_s = MSG_task_create(NULL, 100, 100, com_request);
-                                MSG_task_set_category(message_s, "TASK");
+                                MSG_task_set_category(message_s, "TASK_STEAL");
                                 MSG_task_isend(message_s, host_dest->name);
                                 
                                 break;
@@ -666,24 +674,24 @@ int comm (int argc, char *argv[]) {
                                 
                                 struct xksimu_com_request_steal_t * steal_request = com_receive->data;
 
-                                XBT_CVERB(XKSIMU_TASKS, "[Answer] Receive Steal Request from %s/%d for thread %d, first task : %p.", steal_request->source->host->name, steal_request->source->pid, steal_request->dest->pid, steal_request->dest->tasks.head);
+                                XBT_CVERB(XKSIMU_TASKS_STEAL, "[Answer] Receive Steal Request from %s/%d for thread %d, first task : %p.", steal_request->source->host->name, steal_request->source->pid, steal_request->dest->pid, steal_request->dest->tasks.head);
                                 
                                 if (steal_request->dest->tasks.head != NULL) {
-                                        XBT_CDEBUG(XKSIMU_TASKS, "%d remaining tasks, %d available tasks", remaining_tasks.size, steal_request->dest->tasks.size);
-                                        XBT_CDEBUG(XKSIMU_TASKS, "      > head status : %d", ((struct xksimu_task_t *)steal_request->dest->tasks.head->data)->state);
+                                        XBT_CDEBUG(XKSIMU_TASKS_STEAL, "%d remaining tasks, %d available tasks", remaining_tasks.size, steal_request->dest->tasks.size);
+                                        XBT_CDEBUG(XKSIMU_TASKS_STEAL, "      > head status : %d", ((struct xksimu_task_t *)steal_request->dest->tasks.head->data)->state);
                                         struct xksimu_task_t * _t = steal_request->dest->tasks.head->data;
-                                        XBT_CDEBUG(XKSIMU_TASKS, "      > head task : %s", _t->id);
-                                        XBT_CDEBUG(XKSIMU_TASKS, "      > head missing datas : %d", get_missingdata_list(steal_request->dest, (struct xksimu_task_t *)steal_request->dest->tasks.head->data)->size);
+                                        XBT_CDEBUG(XKSIMU_TASKS_STEAL, "      > head task : %s", _t->id);
+                                        XBT_CDEBUG(XKSIMU_TASKS_STEAL, "      > head missing datas : %d", get_missingdata_list(steal_request->dest, (struct xksimu_task_t *)steal_request->dest->tasks.head->data)->size);
                                         struct xksimu_list_t * d = get_missingdata_list(steal_request->dest, (struct xksimu_task_t *)steal_request->dest->tasks.head->data);
                                         if (d->head != NULL) {
                                                 struct xksimu_data_t * _d = d->head->data;
-                                                XBT_CDEBUG(XKSIMU_TASKS, "      > missing data : %s", _d->id);
+                                                XBT_CDEBUG(XKSIMU_TASKS_STEAL, "      > missing data : %s", _d->id);
                                                 struct xksimu_block_t * _b = _d->blocks.head->data;
                                                 struct xksimu_list_el_t * _el = _b->owners.head;
-                                                XBT_CDEBUG(XKSIMU_TASKS, "      > missing data owners");
+                                                XBT_CDEBUG(XKSIMU_TASKS_STEAL, "      > missing data owners");
                                                 while (_el != NULL) {
                                                         struct xksimu_host_t * _h = _el->data;
-                                                        XBT_CDEBUG(XKSIMU_TASKS, "              > %s", _h->name);
+                                                        XBT_CDEBUG(XKSIMU_TASKS_STEAL, "              > %s", _h->name);
                                                         _el = _el->next;
                                                 }
                                         }
@@ -697,7 +705,7 @@ int comm (int argc, char *argv[]) {
                                 res = xksimu_list_remove(&(steal_request->dest->tasks), answer->data);
 
                                 msg_task_t message_s = MSG_task_create(NULL, 100, 100, com_request);
-                                MSG_task_set_category(message_s, "TASK");
+                                MSG_task_set_category(message_s, "TASK_STEAL");
                                 MSG_task_isend(message_s, steal_request->source->host->name);
 
                                 free(steal_request);
@@ -707,9 +715,9 @@ int comm (int argc, char *argv[]) {
                                 struct xksimu_task_t * task = answer->data;
 
                                 if (answer->data == NULL) {
-                                        XBT_CINFO(XKSIMU_TASKS, "[Receive] No task available in process %s/%d.", answer->source->host->name, answer->source->pid);
+                                        XBT_CINFO(XKSIMU_TASKS_STEAL, "[Receive] No task available in process %s/%d.", answer->source->host->name, answer->source->pid);
                                 } else {
-                                        XBT_CINFO(XKSIMU_TASKS, "[Receive] Task %s receive from %s/%d for %d.", task->id, answer->source->host->name, answer->source->pid, answer->dest->pid);
+                                        XBT_CINFO(XKSIMU_TASKS_STEAL, "[Receive] Task %s receive from %s/%d for %d.", task->id, answer->source->host->name, answer->source->pid, answer->dest->pid);
                                         xksimu_list_push_back(&(answer->dest->tasks), task);
                                 }
 
@@ -1029,6 +1037,7 @@ int main (int argc, char *argv[]) {
         
         xbt_log_control_set("XKSIMU.thresh:INFO");
         xbt_log_control_set("XKSIMU_INIT.thresh:WARNING");
+        xbt_log_control_set("XKSIMU_TASKS_STEAL.thresh:WARNING");
 
         MSG_init(&argc, argv);
         if (argc < 5) {
@@ -1057,6 +1066,7 @@ int main (int argc, char *argv[]) {
 
         TRACE_platform_graph_export_graphviz("test_graph.dot");
         TRACE_category("TASK");
+        TRACE_category("TASK_STEAL");
         TRACE_category("DATA");
         TRACE_category("LOCAL");
 
