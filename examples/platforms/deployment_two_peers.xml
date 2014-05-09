@@ -1,0 +1,10 @@
+<?xml version='1.0'?>
+<!DOCTYPE platform SYSTEM "http://simgrid.gforge.inria.fr/simgrid.dtd">
+<platform version="3">
+        <process peer="100030591" function="comm"></process>
+        <process peer="100030591" function="worker"></process>
+        <process peer="100030591" function="worker"></process>
+        <process peer="100036570" function="comm"></process>
+        <process peer="100036570" function="worker"></process>
+        <process peer="100036570" function="worker"></process>
+</platform>

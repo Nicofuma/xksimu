@@ -1,0 +1,10 @@
+<?xml version='1.0'?>
+<!DOCTYPE platform SYSTEM "http://simgrid.gforge.inria.fr/simgrid.dtd">
+<platform version="3">
+        <process host="Tremblay" function="comm"></process>
+        <process host="Tremblay" function="worker"></process>
+        <process host="Tremblay" function="worker"></process>
+        <process host="Jupiter" function="comm"></process>
+        <process host="Jupiter" function="worker"></process>
+        <process host="Jupiter" function="worker"></process>
+</platform>
