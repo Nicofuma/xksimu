@@ -28,7 +28,7 @@ sub stringify {
 	my $od_string = join("\n", @{$self->{output_data}});
 	my $ct_count = @{$self->{created_tasks}};
 	my $ct_string = join("\n", @{$self->{created_tasks}});
-	confess "no creator for $self->{id}" unless defined $self->{creator};
+#	confess "no creator for $self->{id}" unless defined $self->{creator};
 	return "$self->{id}\n$self->{duration}\n$self->{creator}\n$id_count\n$id_string\n$od_count\n$od_string\n$ct_count\n$ct_string\n";
 }
 

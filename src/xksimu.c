@@ -205,7 +205,7 @@ void create_tasks(const char * filename) {
 
                 str = fgets(buf, 256, file);
                 buf[strlen(buf) - 1] = '\0';
-                tasks_table[i].time = atoi(buf);
+                tasks_table[i].time = atol(buf);
                 str = fgets(buf, 256, file); // creator
                 buf[strlen(buf) - 1] = '\0';
                 
@@ -245,7 +245,7 @@ void create_tasks(const char * filename) {
                         str = fgets(buf, 256, file);
                 }
                
-                int exec-time = 900000000000;
+                long exec_time = tasks_table[i].time > 0 ? tasks_table[i].time : 900000000000;
                 if (strcmp("init", tasks_table[i].id) == 0) {
                         tasks_table[i].state = fully_available;
                         struct xksimu_proc_t * proc = hosts_table[0].proc.head->data;
@@ -253,8 +253,6 @@ void create_tasks(const char * filename) {
                         xksimu_list_push_front(&(proc->tasks), &(tasks_table[i]));
                 }
 
-                // TODO : Computation time in flop instead of 50000000
-                // TODO : Communication size in byte instead of 100 => Concrètement, lors du vol il y a quoi qui circule ?
                 tasks_table[i].task = MSG_task_create(tasks_table[i].id, exec_time, 100, &(tasks_table[i]));
                 MSG_task_set_category(tasks_table[i].task, "TASK");
                 xksimu_list_push_front(&remaining_tasks, &tasks_table[i]);
